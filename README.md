@@ -1,8 +1,8 @@
 # uKasa
-A utilty that manages Kasa smart outlets and switches in Asuswrt-Merlin routers or Linux RPi
+A utilty that manages Kasa smart outlets and switches in Asuswrt-Merlin routers
 
 ## Installation
-uKasa can be installed on Debian/Linux systems (i.e. Raspberry Pi) and Asuswrt-Merlin routers.
+uKasa can be installed on Asuswrt-Merlin routers.
 
 Using ssh/shell, execute the following line:
 
@@ -10,18 +10,12 @@ For Asuswrt-Merlin based routers:
 
 /usr/sbin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/uKasa/master/ukasa" -o "/jffs/scripts/ukasa" && chmod 0755 /jffs/scripts/ukasa && /jffs/scripts/ukasa install
 
-For Linux (i.e. Raspberry Pi)
-
-/usr/bin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/uKasa/master/ukasa" -o "$HOME/ukasa" && chmod 0755 $HOME/ukasa && $HOME/ukasa install
-
 ## About
 uKasa is a small script/utility that lets you turn Kasa Smart Plugs and some Kasa Smart Switches off and on via the Linux CLI (or called from a script).
 It also will show lots of information about the Kasa devices it finds on the local network including power consumption information if the plugs supports energy management.
 
 uKasa attempts to support the Asuswrt-Merlin "AddOn" philosophy. It has an install and uninstall function and puts the executable script in /jffs/scripts (with a
 symbolic link to /opt/bin) and install a "conf" file in /jffs/addons/ukasa.
-
-For Linux/Raspbian installations, the executable script will be installed in /usr/local/sbin and the conf file in the $HOME/.config/ukasa directory
 
 During install, ukasa can download a small group of example scripts using using ukasa. If selected, these will be downloaded to the ~ukasa/examples directory.
 The main reason I ported and worked on this script was to be able to power cycle a few of my AiMesh nodes. I had some problems with one node going offline.
