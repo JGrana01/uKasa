@@ -1,0 +1,824 @@
+#!/opt/bin/bash
+#set -x
+#
+# ukasa - scripts for managing TP-Link ukasa Smart Plugs and HS100 switches
+#       for Asuswrt-merlin routers and Raspberry Pi's
+# 
+# NOTE: Does not work with newer Matter enabled plug (KP-125M)
+#
+# Author: John Grana jgranaroc@gmail.com
+# version : v0.1.0
+# date    : 1/29/2024
+#
+# inplemented features:
+# - turn on/off a plug
+# - check state of plug
+# - view power meter
+#
+# usage: 	ukasa <plugIP or hostname> <command>
+#
+#
+# Commands:
+#		on or off - turn a plug on or off
+#		state - show presentn plug state
+#		power - display how much power the plug is supplying
+#		monitor - continuiusly display power consumption 
+#		info - show information about then plug
+#		discover - search for and save all kasa plugs on local network
+# plugs	     : show the plugs discovred by ukasa
+# help       :  ukasa help
+# install    :  ukasa install
+# uninstall  :  ukasa uninstall
+
+# encoded (the reverse of decode) commands to send to the plug
+
+# encoded {"system":{"set_relay_state":{"state":1}}}
+payload_on="AAAAKtDygfiL/5r31e+UtsWg1Iv5nPCR6LfEsNGlwOLYo4HyhueT9tTu36Lfog=="
+
+# encoded {"system":{"set_relay_state":{"state":0}}}
+payload_off="AAAAKtDygfiL/5r31e+UtsWg1Iv5nPCR6LfEsNGlwOLYo4HyhueT9tTu3qPeow=="
+
+# encoded { "system":{ "get_sysinfo":null } }
+payload_query="AAAAI9Dw0qHYq9+61/XPtJS20bTAn+yV5o/hh+jK8J7rh+vLtpbr"
+
+# the encoded request { "emeter":{ "get_realtime":null } }
+payload_emeter="AAAAJNDw0rfav8uu3P7Ev5+92r/LlOaD4o76k/6buYPtmPSYuMXlmA=="
+
+
+# define based on OS
+setOS() {
+
+	OSis=$(uname -o)
+
+	case $OSis in
+		ASUSWRT-Merlin)
+			OS="merlin"
+			;;
+		"GNU/Linux")
+			OS="linux"
+			;;
+		*)
+			printf "Your OS reports %s, you need to install ukasa on either an Asuswrt-Merlin based router or Raspberry Pi\\n" $OSis
+			printf "Bailing...\\n\\n"
+			exit 1
+	esac
+}
+
+
+# global variables 
+
+
+SCRIPTNAME="ukasa"
+SCRIPTVER="0.1.0"
+
+NCOPTS=""
+BASE64DEC="-d"
+od_offset=4
+
+ODOPTS="--skip-bytes=$od_offset --address-radix=n -t u1 --width=9999"
+
+
+# remove tmp files on exits
+
+cleanupkp() {
+	rm -f $KASATMP
+	rm -f $KASADEVICES.tmp
+	exit
+}
+
+#trap cleanupkp INT TERM EXIT
+
+# this needs to be done first thing - figure out what OS we are running on
+
+setOS
+
+if [ "$OS" = "merlin" ] ; then
+	SCRIPTLOC="/jffs/scripts"
+	SCRIPTDIR="/jffs/addons/$SCRIPTNAME"
+	SCRIPTCONF="$SCRIPTDIR/SCRIPTNAME.conf"
+	KASADEVICES="$SCRIPTDIR/$SCRIPTNAME.devices"
+	DEPENDS="$SCRIPTDIR/.depends"
+	NCAPP="/usr/bin/nc"
+	NMAPP="/opt/bin/nmap"
+else
+	SCRIPTLOC="/usr/local/sbin/"
+	SCRIPTDIR="/$HOME/.config/$SCRIPTNAME"
+	SCRIPTCONF="$SCRIPTDIR/SCRIPTNAME.conf"
+	KASADEVICES="$SCRIPTDIR/$SCRIPTNAME.devices"
+	DEPENDS="$SCRIPTDIR/.depends"
+	NCAPP="/usr/bin/nc"
+	NMAPP="/usr/bin/nmap"
+fi
+
+KPRESPONSE="$SCRIPTDIR/kpresponse"
+KASATMP="$SCRIPTDIR/ukasa.tmp"
+once=1
+monitor=2
+report=3
+
+debug=0
+
+# functions
+
+# help/usage
+
+usage() {
+	echo ""
+	echo "ukasa Version $SCRIPTVER"
+	echo ""
+
+	echo " usage: ukasa <IP or hostname> <command>"
+
+	echo ""
+	echo "   command can be..."
+	echo "       <on|off>		:  turn plug off or on"
+	echo "       <state>		:  display the present state"
+	echo "       <power>		:  display the power (Voltage and  Watts) being used"
+	echo "       <monitor>	:  continually display the power (Voltage and  Watts) being used"
+	echo "       <info>		:  show information about a plug"
+	echo ""
+	echo "discover		:  search the network for Kasa devices"
+	echo "devices			:  show all the devices discovered"
+	echo "help (this screen)	:  show this screen"
+	echo "install			:  run the install script"
+	echo "uninstall		:  remove ukasa files and directories"
+	echo "version			:  show script version"
+	echo "update			:  check for and update ukasa"
+	echo "==============================================================================================="
+	exit 1
+}
+
+# print if verbose is set
+
+ukasaprint() {
+
+	if [ "$ukasaVerbose" -eq "1" ]; then  
+		echo "$1"
+	fi
+}
+
+# make sure there is a ukasa.conf file and a reasonable IP address and API for the bridge
+
+checkapi() {
+
+	if [ -f "$SCRIPTCONF" ]; then
+		. "$SCRIPTCONF"
+	else
+		echo "[-] ukasa: No $SCRIPTCONF found"
+        	echo "[-] ukasa: Please run ukasa install and try again."
+		exit 1
+	fi
+	if [ ! -f "$KASADEVICES" ]; then
+		echo "[-] ukasa: No outles detected. Please run ukasa discover"
+		exit 1
+	fi
+}
+
+# generate a unique hostname for the device based on last 3 digits of it's mac address
+
+unique_hostname()
+{
+    # given a prefix and a MAC for a host, construct a unique name for the host
+    local ip=$1;    [ -n $prefix ] || return 1
+    mac=$(arp -a \
+            | grep "($ip)" \
+            | grep -E -o '(([0-9a-fA-F]{1,2}:){5}[0-9a-fA-F]{1,2})' )
+    [ -z "$mac" ] && { echo 2>&1 "arp didn't find a MAC for $ip!"; return 1; }
+
+    # new method - use last 3 values of mac
+	basen=$(echo $2 | tr -d '()')
+	kasahost=$basen$(echo $mac | tr -d ':' | tail -c 7)
+
+	echo $1 $kasahost
+}
+
+discoverkasa() {
+
+	rm -f $KASADEVICES	# start fresh
+
+	if [ $OS = "merlin" ]; then
+		myip=$(nvram get lan_ipaddr)
+	 else
+		private_ip='(127\.|172\.|10\.)'
+		ip_capture='(([0-9]{1,3}\.){3}[0-9]{1,3})'
+		myip=$(ip addr show \
+        		| grep '^\s*inet[^6]' \
+        		| grep -E -v $private_ip \
+        		| grep -E -o $ip_capture \
+        		| head -n 1)
+	fi
+	
+	subnet=$(echo $myip | grep -E -o '([0-9]{1,3}\.){3}')
+	subnet=${subnet}0-255
+	echo "myip  subnet port: "$myip $subnet $port
+
+	echo "Scanning local network for Kasa plugs and switches"
+	echo "This can take a minute or two..."
+
+	$NMAPP -Pn -n -p$port --open $subnet | grep "Nmap scan report for" | awk '{print $5}' > $KASADEVICES.tmp
+
+	if [ -z $KASADEVICES.tmp ]; then
+		echo "Hmm, no Kasa plugs or switches found on local network..."
+		exit
+	fi
+
+	numplugs=$(wc -l $KASADEVICES.tmp | awk '{print $1}')
+	echo "Found $numplugs plugs on network"
+	echo "Checking plugs and names..."
+	port=9999
+        query_plug "$payload_query" $i
+	for i in $(cat $KASADEVICES.tmp); do
+		kpname=$(grep $i /etc/hosts)
+		if [ -z "$kpname" ] && [ -f /jffs/addons/YazDHCP.d/.hostnames ]; then
+			kpname=$(grep $i /jffs/addons/YazDHCP.d/.hostnames)
+		fi
+
+		if [ -z "$kpname" ]; then
+			model=$(jq -M '.system.get_sysinfo.model' $KPRESPONSE | tr -d '"')
+			kpname=$(unique_hostname $i $model)
+		fi
+		alias=$(jq -M '.system.get_sysinfo.alias' $KPRESPONSE | tr -d '"')
+		model=$(jq -M '.system.get_sysinfo.model' $KPRESPONSE | tr -d '"')
+		feature=$(jq -M '.system.get_sysinfo.feature' $KPRESPONSE | tr -d '"')
+		typed=$(jq -M '.system.get_sysinfo.dev_name' $KPRESPONSE | tr -d '"')
+
+		case "$typed" in
+			*Plug*)
+				devtype="Plug"
+			;;
+			*Switch*)
+				devtype="Switch"
+			;;
+			*)
+				devtype="Unknown"
+			;;
+		esac
+
+		echo $kpname $model $devtype $feature $alias >> $KASADEVICES
+	done
+	rm $KASADEVICES.tmp
+}
+
+# display the known (discovered) Kasa plugs and switches
+#
+# displays the name and IP address
+
+showkasadevices() {
+
+	if [ ! -f "$KASADEVICES" ]; then
+		echo "ukasa: No Kasa devices found. Try to run discover"
+		echo "  ukasa discover"
+		exit 1
+	fi
+
+	cat $KASADEVICES >> $KASATMP
+	column -t -N "Plug IP","Hostname","Model","Type","Features","Alias" $KASADEVICES > $KASATMP
+                len=$(cat $KASATMP | wc -L)
+                i=0
+                lonlin=""
+                while [ $i -lt $len ]; do
+                        lonlin=$lonlin-
+                        i="$((i + 1))"
+                done
+                lonlin=$lonlin-
+                awk -v v="$lonlin" 'NR==2{print v}1' $KASATMP
+	rm -f $KASATMP
+}
+
+# based on OS, install other apps kp125 needs
+
+installdepends() {
+
+	if [ "$OS" = "merlin" ]; then
+        	if [ ! -x /opt/bin/opkg ]; then
+        	        printf "\\nukasa requires Entware to be installed\\n"
+                	printf "\\nInstall Entware using amtm and run ukasa install\\n"
+                	exit 1
+        	else
+			echo "Checking for and installing required apps"
+			entwareup=0
+                	for app in jq nmap; do
+                        	if [ ! -x /opt/bin/$app ]; then
+					if [ "$entwareup" = "0" ]; then
+                				opkg update
+						entwareup=1
+					fi
+                                	echo "Installing $app to /opt/bin"
+                               		opkg install $app
+					echo $app >> $DEPENDS
+                        	fi
+                	done
+        	fi
+	else
+		echo "Checking for and installing required apps"
+		aptupd=0
+                for app in jq nmap; do
+			if [ ! $(which $app) ]; then
+				if [ "$aptupd" = "0" ]; then
+                			sudo apt-get update
+					aptupd=1
+				fi
+                        echo "Installing $app"
+                        sudo apt-get install -y $app
+			echo $app >> $DEPENDS
+			fi
+                done
+	fi
+}
+
+
+getexamples() {
+
+	mkdir -p "$SCRIPTDIR/examples"
+
+	$CURLAP --retry 3 --silent "https://raw.githubusercontent.com/JGrana01/ukasa/master/ukasaexamples.tar" -o "$SCRIPTDIR/ukasaexamples.tar" 
+	
+	if [ -f $SCRIPTDIR/ukasaexamples.tar ]; then
+	 	 tar xvf $SCRIPTDIR/ukasaexamples.tar -C $SCRIPTDIR
+	 	 rm -f $SCRIPTDIR/ukasaexamples.tar
+	else
+		printf "ukasa: download of examples tar file failed...\\n"
+	fi
+}
+
+
+# install scrpipt - sets up directories, conf file, etc.
+# OS supported are Asuswrt-Merlin and Raspbian (and possible other GNU/Linux
+
+install_ukasa() {
+	echo "Creating script directory $SCRIPTDIR"
+        mkdir -p "$SCRIPTDIR"
+        mkdir -p "$SCRIPTDIR/saved"
+
+	installdepends
+
+	if [ "$OS" = "merlin" ]; then
+		echo "Installing $SCRIPTNAME in /opt/sbin"
+        	if [ -d "/opt/sbin" ] && [ ! -L "/opt/sbin/$SCRIPTNAME" ]; then
+                	ln -s "$SCRIPTLOC/$SCRIPTNAME" "/opt/sbin/$SCRIPTNAME"
+               		chmod 0755 "/opt/sbin/$SCRIPTNAME"
+        	fi
+	else
+		echo "Installing $SCRIPTNAME in $SCRIPTLOC"
+		if [ ! -f "$HOME/$SCRIPTNAME" ]; then
+			sudo cp "./$SCRIPTNAME" "$SCRIPTLOC/$SCRIPTNAME"
+		else
+			sudo cp "$HOME/$SCRIPTNAME" "$SCRIPTLOC/$SCRIPTNAME"
+		fi
+        	sudo chmod 0755 "$SCRIPTLOC/$SCRIPTNAME"
+	fi
+
+	echo "Creating conf file"
+        echo "# ukasa settings  " > "$SCRIPTCONF"
+        echo "# " >> "$SCRIPTCONF"
+        echo "ukasaVerbose=0 " >> "$SCRIPTCONF"
+        echo "port=9999 " >> "$SCRIPTCONF"
+	printf "\\nHere is the ukasa.conf file:\\n\\n"
+	cat $SCRIPTCONF
+	echo
+	echo
+	sleep 2
+	echo "Scanning local network for Kasa devices"
+	echo "This can take a minute or two..."
+	port=9999	# set default for now
+	discoverkasa
+	if [ -f "$KASADEVICES" ]; then
+		echo ""
+		echo "Here are the Kasa devices found:"
+		echo
+		showkasadevices
+	fi
+	sleep 3
+	printf "\\n\\nWould you also like to download a small collection of example scripts that use ukasa (Y/N)? "
+	read a
+	if [ "$a" = "y" ] || [ "$a" = "Y" ]; then
+		printf "\\nThis will download some scripts into the $SCRIPTDIR/examples directory"
+		getexamples
+	fi
+	printf "\\n Install Complete\\n"
+
+}
+
+# uninstall script - remove all the stuff we installed (except dependent apps like nmap)
+
+remove_ukasa() {
+	printf "\\n Uninstall ukasa and it's data/directories? [Y=Yes] ";read -r continue
+	case "$continue" in
+		Y|y) printf "\\n Uninstalling...\\n"
+		   rm -rf "$SCRIPTDIR"
+		   if [ "$OS" = "merlin" ]; then
+                   	rm -f /jffs/scripts/ukasa
+                  	if [ -L /opt/sbin/ukasa ]; then
+				rm -f /opt/sbin/ukasa
+	   	fi
+		   else
+                   	rm -rf "$SCRIPTCONF"
+			rm -f $HOME/ukasa
+                  	sudo rm -f "$SCRIPTLOC/$SCRIPTNAME"
+		   fi
+
+		   printf "\\nukasa uninstalled\\n"
+		;;
+		*) printf "\\nukasa NOT uninstalled\\n"
+		;;
+	esac
+}
+
+
+updateukasa() {
+	if [ -x "$SCRIPTLOC/$SCRIPTNAME" ] && [ -f "$SCRIPTCONF" ]; then
+
+		rm -f "$SCRIPTDIR/ukasa.version"
+
+		$CURLAP --retry 3 --silent "https://raw.githubusercontent.com/JGrana01/ukasa/master/ukasa.version" -o "$SCRIPTDIR/ukasa.version"
+		
+		if [ -z "$SCRIPTDIR/ukasa.version" ]; then
+			echo "ukasa: Could not retrieve version number from github. Exiting."
+			exit
+		fi
+
+		oldwas=$(grep -m 1 "SCRIPTVER=" "$SCRIPTLOC/$SCRIPTNAME" | sed 's/SCRIPTVER\=//g' )
+		newis=$(grep -m 1 "SCRIPTVER=" "$SCRIPTDIR/ukasa.version" | sed 's/SCRIPTVER\=//g')
+
+		if [ "$oldwas" = "$newis" ]; then
+			echo "ukasa is up to date"
+			exit
+		fi
+
+		printf "New version ($newis) of ukasa found.\\n"
+
+		printf "\\nDownload and install the latest version of ukasa (Y/N)? "
+		read a
+		if [ "$a" = "n" ] || [ "$a" = "N" ]; then
+			exit
+		else
+			printf "\\nOk, downloading ukasa\\n"
+			$CURLAP --retry 3 --silent "https://raw.githubusercontent.com/JGrana01/ukasa/master/ukasa" -o "$KASATMP" && chmod 0755 $KASATMP
+		if [ "$OS" = "merlin" ]; then
+				cp $KASATMP $SCRIPTLOC/$SCRIPTNAME
+			else
+				sudo cp $KASATMP $SCRIPTLOC/$SCRIPTNAME
+			fi
+			rm $KASATMP
+			printf "\\n\\nDone.\\n"
+			printf "Old version was %s, new version us %s\\n" $oldwas $newis
+			
+		fi
+
+		if [ -d $SCRIPTDIR/examples ]; then
+			printf "Would you also like to re-download the example scripts in $SCRIPTDIR/examples(Y/N)? "
+			printf "\\n   (Note - this will overwrite all the example scripts so a backup tar file (examples.tar) will be created in that directory)"
+			read a
+			if [ "$a" = "y" ] || [ "$a" = "Y" ]; then
+				tar cf examples.tar -C $SCRIPTDIR/examples .
+				getexamples
+			fi
+		fi
+	else
+		printf "\\nNo $SCRIPTLOC/$SCRIPTNAME or $SCRIPTCONF found"
+		printf "\\nDownload and install manually"
+	fi
+}
+
+# given the name of a device return it's IP
+
+name2ip() {
+
+	
+	ipis=$(grep -w "$1\s" "$KASADEVICES" | awk '{print $1}')
+
+	if [ -z "$ipis" ]; then
+		echo "[-] ukasa: $1 not found in $KASADEVICES"
+		echo "[-] Maybe run ukasa discover?"
+		exit
+	else
+		echo $ipis
+fi
+
+}
+
+# given the IP of a device, return it's name
+
+ip2name() {
+	nameis=$(grep -w "$1" "$KASADEVICES" | awk '{print $2}')
+
+	if [ -z "$namis" ]; then
+		echo "[-] ukasa: $1 not found in $KASADEVICES"
+		exit
+	else
+		echo $namis
+	fi
+}
+
+printdevicetype() {
+	if [ ! -f $KASADEVICES ]; then
+		echo "No $KASADEVICES found, run ukasa discover"
+		exit
+	fi
+
+	grep $1 $KASADEVICES | awk '{print $4}'
+}
+
+
+# plug functions
+
+send_to_plug() {
+   ip="$1"
+   port="$2"
+   payload="$3"
+   if ! echo -n "$payload" | base64 ${BASE64DEC} | nc $NCOPTS $ip $port
+   then
+      echo couldn''t connect to $ip:$port, nc failed with exit code $?
+   fi
+}
+
+decode(){
+   code=171
+   input_num=`od $ODOPTS`
+   IFS=' ' read -r -a array <<< "$input_num"
+   args_for_printf=""
+   for element in "${array[@]}"
+   do
+      output=$(( $element ^ $code ))
+      args_for_printf="$args_for_printf\x$(printf %x $output)"
+      code=$element
+   done
+   printf "$args_for_printf"
+}
+
+
+query_plug(){
+	ip=$2
+        payload=$1
+        send_to_plug $ip $port "$payload" | decode | jq '.' > $KPRESPONSE
+}
+
+# given a .json formated file ($1), return the value of the key ($2)
+
+pullarg() {
+        cat "$1" | sed /{/d | sed /}/d | sed 's/,//' | sed 's/"//g' | sed '/effect/d' | awk 'BEGIN { FS = ":" }; { print $1 $2 }' | grep -m 1 "$2" | awk '{ print $2 }'
+}
+
+
+cmd_print_plug_relay_state(){
+        ip=$1
+        printf "$ip\t"
+        query_plug "$payload_query" $1
+	alias=$(jq -M '.system.get_sysinfo.alias' $KPRESPONSE)
+        output=$(pullarg $KPRESPONSE "relay_state")
+	printf "%s\t" "$alias"
+       if (( output == 0 )); then
+         echo OFF
+       elif (( output == 1 )); then
+         echo ON
+       else
+         echo Couldn''t understand plug response $output
+       fi
+}
+
+cmd_print_plug_status(){
+   query_plug "$payload_query" $1
+}
+
+cmd_print_plug_consumption(){
+
+   
+
+   query_plug "$payload_emeter" $1
+   if [ -z "$KPRESPONSE" ]; then
+	echo "ukasa: Didn't get a response from plug $1"
+	exit
+   fi
+
+	current_ma=$(pullarg $KPRESPONSE "current_ma")
+	voltage_mv=$(pullarg $KPRESPONSE "voltage_mv")
+	voltage_V=$(echo "$voltage_mv / 1000" | bc -l)
+	power_mw=$(pullarg $KPRESPONSE "power_mw")
+	power_W=$(echo "$power_mw / 1000" | bc -l) 
+	total_wh=$(pullarg $KPRESPONSE "total_wh")
+
+	if [ "$2" = "$report" ]; then
+		return
+	elif [ "$2" = "$monitor" ]; then
+        	printf "Voltage: %.1f (V)  Current: %s (mA)  Power: %.1f (W)  Total Watt Hours: %s (Wh)\\r" $voltage_V $current_ma $power_W $total_wh
+	else
+        	printf "Voltage: %.1f (V)  Current: %s (mA)  Power: %.1f (W)  Total Watt Hours: %s (Wh)\\n" $voltage_V $current_ma $power_W $total_wh
+	fi
+}
+
+
+cmd_print_plug_info(){
+   query_plug "$payload_query" $1
+   if [ -z "$KPRESPONSE" ]; then
+	echo "ukasa: Didn't get a response from device $1"
+	exit
+   fi
+
+      echo
+      grep $1 $KASADEVICES | column -t -N "IP","Hostname","Model","Type","Features","Alias"
+
+      sw_ver=$(pullarg $KPRESPONSE "sw_ver")
+      hw_ver=$(pullarg $KPRESPONSE "hw_ver")
+      model=$(pullarg $KPRESPONSE "model")
+      deviceId=$(pullarg $KPRESPONSE "deviceId")
+      rssi=$(pullarg $KPRESPONSE "rssi")
+      relay_state=$(pullarg $KPRESPONSE "relay_state")
+      on_time=$(pullarg $KPRESPONSE "on_time") 
+
+# handle some vars different (format)
+
+      alias=$(jq -M '.system.get_sysinfo.alias' $KPRESPONSE)
+      mac=$(jq -M '.system.get_sysinfo.mac' $KPRESPONSE)
+      dev_name=$(jq -M '.system.get_sysinfo.dev_name' $KPRESPONSE)
+      if [ "$on_time" = "0" ]; then
+	  fulltime=0
+      else
+          fulltime=$(printf "%dd:%dh:%dm" $((on_time/86400)) $((on_time%86400/3600)) $((on_time%3600/60)))
+      fi
+      if [ "$relay_state" = "0" ]; then
+	pstate=OFF
+      else
+	pstate=ON
+      fi
+
+      printf "\\nSofware Ver: %s   Hardwar Ver: %s  Model: %s (%s)  Device ID: %s\\n" $sw_ver $hw_ver $model "$dev_name" $deviceId
+      printf "WiFi rssi: %s   Power state: %s  MAC address: %s  On time: %s\\n" $rssi $pstate $mac $fulltime
+
+      if [ "$model" = "KP125" ]; then
+         cmd_print_plug_consumption $1 $once
+         echo
+     else
+	printf "ukasa: This model doesn't support energy management\\n"
+      fi
+}
+
+cmd_switch_on(){
+      send_to_plug $1 $port $payload_on > /dev/null
+}
+
+cmd_switch_off(){
+       send_to_plug $1 $port $payload_off > /dev/null
+}
+
+
+# main script
+
+if [ ${#} -eq 0 ]; then
+	usage
+	exit 0
+fi
+
+setOS
+
+# handle initial install
+
+if [ "$1" = "install" ]; then
+	install_ukasa
+	exit
+fi
+
+checkapi
+
+if [ -z $(which jq) ]; then
+	echo "[-] ukasa: jq is not installed. This script needs $CURLAP to communicate with the plug."
+        echo "[-] ukasa: Please run kp125 install and try again."
+        exit 1
+fi
+
+if [ -f "$SCRIPTCONF" ]; then
+	. "$SCRIPTCONF"
+else
+	echo "[-] ukasa: No $SCRIPTCONF found"
+        echo "[-] ukasa: Please run ukasa install and try again."
+	exit 1
+fi
+
+kpplug=${1}
+kpcommand=${2}
+
+# check for "immediate" commands
+
+case ${1} in
+	uninstall)
+		remove_ukasa
+		exit
+	;;
+	discover)
+		discoverkasa
+		if [ -f "$KASADEVICES" ]; then
+			echo ""
+			echo "ukasa: Here are the Kasa devices found:"
+			echo
+			showkasadevices
+			echo
+		fi
+		exit
+	;;
+	devices)
+		if [ -f "$KASADEVICES" ]; then
+			echo ""
+			echo "Here are the Kasa devices found:"
+			echo
+			showkasadevices
+			echo
+		fi
+		exit
+	;;
+	update)
+		updateukasa
+		exit 0
+	;;
+	help)
+		usage
+		exit 0
+	;;
+esac
+
+# not immediate command, see what to do
+
+# see if plug is known
+
+if ! grep -wq $kpplug $KASADEVICES ; then
+   echo "ukasa: $kpplug not found in plug device list"
+   echo " Try running ukasa discover"
+   exit
+fi
+
+# if hostname, convert to IP address
+
+if ! echo "$kpplug" | grep -q "^[0-9]"
+then
+	kpplug=$(name2ip "$kpplug")
+fi
+
+
+case ${kpcommand} in
+
+		on) 
+			cmd_switch_on $kpplug
+			exit
+		 ;;
+		off) 
+			cmd_switch_off $kpplug
+			exit
+		 ;;
+		state)
+			cmd_print_plug_relay_state $kpplug
+			exit
+		;;
+		power)
+			if  ! grep -w $kpplug $KASADEVICES | grep -q "TIM:ENE"; then
+   				echo "$kpplug does not support energy management"
+   				exit
+			fi
+			printf "\\nPower Information Plug $kpplug\\n\\n"
+			cmd_print_plug_consumption $kpplug $once
+			echo
+		;;	
+		monitor)
+			if  ! grep -w $kpplug $KASADEVICES | grep -q "TIM:ENE"; then
+   				echo "$kpplug does not support energy management"
+   				exit
+			fi
+			echo "Press Enter to exit monitor mode..."
+			echo
+			while true
+			do
+				cmd_print_plug_consumption $kpplug $monitor
+				if $(read -r -t 3); then
+            				echo
+           				exit
+		        	fi
+			done
+			exit
+		;;	
+		info)
+			cmd_print_plug_info $kpplug
+			echo
+			exit
+		;;
+		version)
+			echo $SCRIPTVER
+			exit 0
+		;;
+		verbose)
+			if [ "$ukasaVerbose" -eq "0" ]; then
+				sed -i "s/ukasaVerbose='0'/ukasaVerbose='1'/" $SCRIPTCONF
+			else
+				sed -i "s/ukasaVerbose='1'/ukasaVerbose='0'/" $SCRIPTCONF
+			fi
+			exit 0
+		;;
+# testmode - hidden command to expriment with differnt things
+		testmode)
+			printf "Plug %s  Command %s\\n" $kpplug $kpcommand
+			printdevicetype $kpplug
+			read a
+			exit 0
+		;;
+	*)
+	   echo "ukasa: Unknown command ${kpcommand}"
+	    usage ;;
+esac
+
+exit 0
