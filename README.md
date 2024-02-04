@@ -8,11 +8,11 @@ Using ssh/shell, execute the following line:
 
 For Asuswrt-Merlin based routers:
 
-/usr/sbin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/ukasa/master/ukasa" -o "/jffs/scripts/ukasa" && chmod 0755 /jffs/scripts/ukasa && /jffs/scripts/ukasa install
+/usr/sbin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/uKasa/master/ukasa" -o "/jffs/scripts/ukasa" && chmod 0755 /jffs/scripts/ukasa && /jffs/scripts/ukasa install
 
 For Linux (i.e. Raspberry Pi)
 
-/usr/bin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/ukasa/master/ukasa" -o "$HOME/ukasa" && chmod 0755 $HOME/ukasa && $HOME/ukasa install
+/usr/bin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/uKasa/master/ukasa" -o "$HOME/ukasa" && chmod 0755 $HOME/ukasa && $HOME/ukasa install
 
 ## About
 uKasa is a small script/utility that lets you turn Kasa Smart Plugs and some Kasa Smart Switches off and on via the Linux CLI (or called from a script).
