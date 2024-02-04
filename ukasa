@@ -69,7 +69,7 @@ setOS() {
 
 
 SCRIPTNAME="ukasa"
-SCRIPTVER="0.1.0"
+SCRIPTVER="0.1.1"
 
 NCOPTS=""
 BASE64DEC="-d"
@@ -100,6 +100,7 @@ if [ "$OS" = "merlin" ] ; then
 	DEPENDS="$SCRIPTDIR/.depends"
 	NCAPP="/usr/bin/nc"
 	NMAPP="/opt/bin/nmap"
+	CURLAP="/usr/sbin/curl"
 else
 	SCRIPTLOC="/usr/local/sbin/"
 	SCRIPTDIR="/$HOME/.config/$SCRIPTNAME"
@@ -108,6 +109,7 @@ else
 	DEPENDS="$SCRIPTDIR/.depends"
 	NCAPP="/usr/bin/nc"
 	NMAPP="/usr/bin/nmap"
+	CURLAP="/usr/bin/curl"
 fi
 
 KPRESPONSE="$SCRIPTDIR/kpresponse"
@@ -226,21 +228,21 @@ discoverkasa() {
 	echo "Found $numplugs plugs on network"
 	echo "Checking plugs and names..."
 	port=9999
-        query_plug "$payload_query" $i
 	for i in $(cat $KASADEVICES.tmp); do
+		query_plug "$payload_query" $i
+		alias=$(jq -M '.system.get_sysinfo.alias' $KPRESPONSE | tr -d '"')
+		model=$(jq -M '.system.get_sysinfo.model' $KPRESPONSE | tr -d '"')
+		feature=$(jq -M '.system.get_sysinfo.feature' $KPRESPONSE | tr -d '"')
+		typed=$(jq -M '.system.get_sysinfo.dev_name' $KPRESPONSE | tr -d '"')
+
 		kpname=$(grep $i /etc/hosts)
 		if [ -z "$kpname" ] && [ -f /jffs/addons/YazDHCP.d/.hostnames ]; then
 			kpname=$(grep $i /jffs/addons/YazDHCP.d/.hostnames)
 		fi
 
 		if [ -z "$kpname" ]; then
-			model=$(jq -M '.system.get_sysinfo.model' $KPRESPONSE | tr -d '"')
 			kpname=$(unique_hostname $i $model)
 		fi
-		alias=$(jq -M '.system.get_sysinfo.alias' $KPRESPONSE | tr -d '"')
-		model=$(jq -M '.system.get_sysinfo.model' $KPRESPONSE | tr -d '"')
-		feature=$(jq -M '.system.get_sysinfo.feature' $KPRESPONSE | tr -d '"')
-		typed=$(jq -M '.system.get_sysinfo.dev_name' $KPRESPONSE | tr -d '"')
 
 		case "$typed" in
 			*Plug*)
@@ -297,8 +299,10 @@ installdepends() {
         	else
 			echo "Checking for and installing required apps"
 			entwareup=0
-                	for app in jq nmap; do
-                        	if [ ! -x /opt/bin/$app ]; then
+			/opt/bin/opkg list-installed > opinst.tmp
+
+                	for app in jq nmap coreutils-od; do
+                        	if ! grep -wq $app opinst.tmp ; then
 					if [ "$entwareup" = "0" ]; then
                 				opkg update
 						entwareup=1
@@ -308,6 +312,7 @@ installdepends() {
 					echo $app >> $DEPENDS
                         	fi
                 	done
+			rm -f opinst.tmp
         	fi
 	else
 		echo "Checking for and installing required apps"
@@ -378,8 +383,6 @@ install_ukasa() {
 	echo
 	echo
 	sleep 2
-	echo "Scanning local network for Kasa devices"
-	echo "This can take a minute or two..."
 	port=9999	# set default for now
 	discoverkasa
 	if [ -f "$KASADEVICES" ]; then
@@ -528,7 +531,7 @@ send_to_plug() {
    payload="$3"
    if ! echo -n "$payload" | base64 ${BASE64DEC} | nc $NCOPTS $ip $port
    then
-      echo couldn''t connect to $ip:$port, nc failed with exit code $?
+      echo "couldn't connect to $ip:$port, nc failed with exit code $?"
    fi
 }
 
@@ -551,6 +554,10 @@ query_plug(){
 	ip=$2
         payload=$1
         send_to_plug $ip $port "$payload" | decode | jq '.' > $KPRESPONSE
+	if [ -z $KPRESPONSE ]; then # some older plugs need a retry
+        	send_to_plug $ip $port "$payload" | decode | jq '.' > $KPRESPONSE
+	fi
+
 }
 
 # given a .json formated file ($1), return the value of the key ($2)
