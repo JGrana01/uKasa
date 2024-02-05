@@ -36,7 +36,85 @@ __NOTE__ nmap is usually pretty good about finding all the Kasa devices. Once in
 __NOTE2__ at this time ukasa _doesn't_ support the new matter based plugs (i.e. KP125M).
 
 ## Usage
-ukasa supports on and off commands along with power reporting and detailed information about the device.
+```
+ usage: ukasa <IP or hostname> <command>
+
+   command can be...
+       <on|off>         :  turn device off or on
+       <state>          :  display the present state
+       <power>          :  display the power (Voltage and  Watts) being used
+       <monitor>        :  continually display the power (Voltage and  Watts) being used
+       <info>           :  show information about a Kasa device
+
+discover                :  search the network for Kasa devices
+devices                 :  show all the devices discovered
+help (this screen)      :  show this screen
+install                 :  run the install script
+uninstall               :  remove ukasa files and directories
+version                 :  show script version
+update                  :  check for and update ukasa
+
+```
+ukasa can accept either the IP address of the Kasa device or the Linux hostname.
+
+When installed, ukasa will scan the local network for devices. If the device is in the table, ukasa can perform commands on it.
+If you add a new Kasa device or you believe the initil scan didn't find them all, perform the "_discovery_" command.
+
+This command will scan the local network and add any new devices to the known device list. To see the device list and information about the Kasa device, issue the "_ukasa devices_" command.
+
+Here is an example of the output from the command:
+
+```Here are the Kasa devices found:
+Device IP      Hostname          Model      Type    Features  Alias
+---------------------------------------------------------------------------------
+192.168.1.105  CasitaDeckLights  HS200(US)  Switch  TIM       Casita     Deck
+192.168.1.106  DeckLights        HS200(US)  Switch  TIM       Porch      Lights
+192.168.1.55   KP115US099914     KP115(US)  Plug    TIM:ENE   Test1
+192.168.1.90   NetworkSys        KP125(US)  Plug    TIM:ENE   Christmas  Tree
+192.168.1.92   WiFIWAN           KP125(US)  Plug    TIM:ENE   WiFi-WAN
+192.168.1.93   TMOGateway        KP125(US)  Plug    TIM:ENE   TMO        Gateway
+192.168.1.91   NetworkCloset     KP125(US)  Plug    TIM:ENE   Network    Closet
+```
+If a hostname can't be found, ukasa will create one with the model name and last 3 octects of the devices MAC address. Note Device IP 192.168.1.55 - ukasa created hostname.
+
+## Commands
+
+These command require the Device IP or Hostname of the Kasa device. I.e.  ukasa _hostname or IP_ _command_
+
+_on/off_  - "on" and "off" will turn the device on or off
+
+_state_  - display the present "on" or "off" state of the device
+```
+192.168.1.91    "Network Closet"        ON
+```
+
+_info_  - show a various information about the device
+```
+IP            Hostname       Model      Type  Features  Alias
+192.168.1.91  NetworkCloset  KP125(US)  Plug  TIM:ENE   Network  Closet
+
+Sofware Ver: 1.0.13   Hardwar Ver: 1.0  Model: KP125(US) ("Smart Wi-Fi Plug Mini")
+  Device ID: 8006F3AD0AF3B86B87EE251210E096AE123456
+WiFi rssi: -9   Power state: ON  MAC address: "1C:61:B4:11:22:33"  On time: 21d:6h:35m
+Voltage: 122.2 (V)  Current: 989.0 (mA)  Power: 109.8 (W)  Total Watt Hours: 56659 (Wh)
+```
+_power_  - display the present voltage, current, power and Watt Hours of the device
+```
+Power Information Plug 192.168.1.91
+
+Voltage: 122.4 (V)  Current: 910.0 (mA)  Power: 109.0 (W)  Total Watt Hours: 56664 (Wh)
+```
+__NOTE__ ukasa will report if the device does not support Energy Management (look for ENE in the Features column).
+
+_monitor_  - continuos display (every 5 seconds) of the power being supplied by the device. Press the Enter key to stop.
+
+
+
+
+
+_
+
+
 
 
 
