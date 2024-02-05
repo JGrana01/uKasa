@@ -79,7 +79,7 @@ If a hostname can't be found, ukasa will create one with the model name and last
 
 ## Commands
 
-These command require the Device IP or Hostname of the Kasa device. I.e.  ukasa _hostname or IP_ _command_
+These command require the Device IP or Hostname of the Kasa device. I.e.  ukasa <_hostname or IP_>  <_command_>
 
 _on/off_  - "on" and "off" will turn the device on or off
 
@@ -107,6 +107,30 @@ Voltage: 122.4 (V)  Current: 910.0 (mA)  Power: 109.0 (W)  Total Watt Hours: 566
 __NOTE__ ukasa will report if the device does not support Energy Management (look for ENE in the Features column).
 
 _monitor_  - continuos display (every 5 seconds) of the power being supplied by the device. Press the Enter key to stop.
+```
+Voltage: 121.0 (V)  Current: 917.0 (mA)  Power: 109.7 (W)  Total Watt Hours: 56699 (Wh)
+```
+These commands do not need a device identifier. They are informational or maintenance.
+
+_discover_ - perform a network scan for Kasa devices. If one or more are found, add to the device list
+__Note__ this command can take a few minutes for the scan and information retreival from the found device. Also, ignore the RTTVAR warnings, it's nmap making adjustments...
+If a new device is discovered, it will be added. Devices are NOT removed from the list.
+
+_devices_ - this command will display a table of the presently known Kasa devices it has discoveded
+```
+Here are the Kasa devices found:
+
+Device IP      Hostname          Model      Type    Features  Alias
+---------------------------------------------------------------------------------
+192.168.1.105  CasitaDeckLights  HS200(US)  Switch  TIM       Casita     Deck
+192.168.1.106  DeckLights        HS200(US)  Switch  TIM       Porch      Lights
+192.168.1.55   KP115US099914     KP115(US)  Plug    TIM:ENE   Test1
+192.168.1.90   NetworkSys        KP125(US)  Plug    TIM:ENE   Christmas  Tree
+192.168.1.92   WiFIWAN           KP125(US)  Plug    TIM:ENE   WiFi-WAN
+192.168.1.93   TMOGateway        KP125(US)  Plug    TIM:ENE   TMO        Gateway
+192.168.1.91   NetworkCloset     KP125(US)  Plug    TIM:ENE   Network    Closet
+```
+
 
 
 
