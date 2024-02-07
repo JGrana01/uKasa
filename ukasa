@@ -19,18 +19,18 @@
 #
 #
 # Commands:
-#		on or off - turn a plug on or off
-#		state - show presentn plug state
+#		on or off - turn a device on or off
+#		state - show present Kasa device state
 #		power - display how much power the plug is supplying
 #		monitor - continuiusly display power consumption 
 #		info - show information about then plug
-#		discover - search for and save all kasa plugs on local network
-# plugs	     : show the plugs discovred by ukasa
+#		discover - search for and save all kasa devices on local network
+# devices    : show the plugs discovred by ukasa
 # help       :  ukasa help
 # install    :  ukasa install
 # uninstall  :  ukasa uninstall
 
-# encoded (the reverse of decode) commands to send to the plug
+# encoded (the reverse of decode) commands to send to the device
 
 # encoded {"system":{"set_relay_state":{"state":1}}}
 payload_on="AAAAKtDygfiL/5r31e+UtsWg1Iv5nPCR6LfEsNGlwOLYo4HyhueT9tTu36Lfog=="
@@ -56,6 +56,8 @@ setOS() {
 			;;
 		"GNU/Linux")
 			OS="linux"
+			echo "At this point, GNU/Linux is not yet supported"
+			exit
 			;;
 		*)
 			printf "Your OS reports %s, you need to install ukasa on either an Asuswrt-Merlin based router or Raspberry Pi\\n" $OSis
@@ -69,9 +71,9 @@ setOS() {
 
 
 SCRIPTNAME="ukasa"
-SCRIPTVER="0.1.1"
+SCRIPTVER="0.1.3"
 
-NCOPTS=""
+NCOPTS="-w 7"
 BASE64DEC="-d"
 od_offset=4
 
@@ -95,7 +97,7 @@ setOS
 if [ "$OS" = "merlin" ] ; then
 	SCRIPTLOC="/jffs/scripts"
 	SCRIPTDIR="/jffs/addons/$SCRIPTNAME"
-	SCRIPTCONF="$SCRIPTDIR/SCRIPTNAME.conf"
+	SCRIPTCONF="$SCRIPTDIR/$SCRIPTNAME.conf"
 	KASADEVICES="$SCRIPTDIR/$SCRIPTNAME.devices"
 	DEPENDS="$SCRIPTDIR/.depends"
 	NCAPP="/usr/bin/nc"
@@ -104,7 +106,7 @@ if [ "$OS" = "merlin" ] ; then
 else
 	SCRIPTLOC="/usr/local/sbin/"
 	SCRIPTDIR="/$HOME/.config/$SCRIPTNAME"
-	SCRIPTCONF="$SCRIPTDIR/SCRIPTNAME.conf"
+	SCRIPTCONF="$SCRIPTDIR/$SCRIPTNAME.conf"
 	KASADEVICES="$SCRIPTDIR/$SCRIPTNAME.devices"
 	DEPENDS="$SCRIPTDIR/.depends"
 	NCAPP="/usr/bin/nc"
@@ -133,14 +135,15 @@ usage() {
 
 	echo ""
 	echo "   command can be..."
-	echo "       <on|off>		:  turn plug off or on"
+	echo "       <on|off>		:  turn device off or on"
 	echo "       <state>		:  display the present state"
 	echo "       <power>		:  display the power (Voltage and  Watts) being used"
 	echo "       <monitor>	:  continually display the power (Voltage and  Watts) being used"
-	echo "       <info>		:  show information about a plug"
+	echo "       <info>		:  show information about a Kasa device"
 	echo ""
-	echo "discover		:  search the network for Kasa devices"
+	echo "discover		:  search the network for Kasa devices and add to the device list"
 	echo "devices			:  show all the devices discovered"
+	echo "refresh			:  re-create the list of all the devices discovered"
 	echo "help (this screen)	:  show this screen"
 	echo "install			:  run the install script"
 	echo "uninstall		:  remove ukasa files and directories"
@@ -196,7 +199,9 @@ unique_hostname()
 
 discoverkasa() {
 
-	rm -f $KASADEVICES	# start fresh
+	if [ "$1" = "new" ]; then
+		rm -f $KASADEVICES	# start fresh
+	fi
 
 	if [ $OS = "merlin" ]; then
 		myip=$(nvram get lan_ipaddr)
@@ -215,7 +220,7 @@ discoverkasa() {
 	echo "myip  subnet port: "$myip $subnet $port
 
 	echo "Scanning local network for Kasa plugs and switches"
-	echo "This can take a minute or two..."
+	echo "This can take a minute or two...(ignore any RTTVAR messages)"
 
 	$NMAPP -Pn -n -p$port --open $subnet | grep "Nmap scan report for" | awk '{print $5}' > $KASADEVICES.tmp
 
@@ -224,9 +229,8 @@ discoverkasa() {
 		exit
 	fi
 
-	numplugs=$(wc -l $KASADEVICES.tmp | awk '{print $1}')
-	echo "Found $numplugs plugs on network"
-	echo "Checking plugs and names..."
+	echo "Checking devices and names..."
+	numnew=0
 	port=9999
 	for i in $(cat $KASADEVICES.tmp); do
 		query_plug "$payload_query" $i
@@ -256,8 +260,27 @@ discoverkasa() {
 			;;
 		esac
 
-		echo $kpname $model $devtype $feature $alias >> $KASADEVICES
+		if [ "$1" = "discover" ]; then
+			if ! grep -q $i $KASADEVICES; then
+				echo $kpname $model $devtype $feature $alias >> $KASADEVICES
+                        	numnew="$((numnew + 1))"
+			fi
+		else
+			echo $kpname $model $devtype $feature $alias >> $KASADEVICES
+		fi
 	done
+	echo
+	numplugs=$(wc -l $KASADEVICES | awk '{print $1}')
+	if [ "$1" = "discover" ]; then
+		if [ $numnew -eq 0 ]; then
+			echo "No new Kasa devices detected"
+		else
+			echo "$numnew Kasa device(s) detected"
+		fi
+		echo "$numplugs Kasa devices on the network"
+	else
+		echo "Found $numplugs Kasa devices on the network"
+	fi
 	rm $KASADEVICES.tmp
 }
 
@@ -274,7 +297,7 @@ showkasadevices() {
 	fi
 
 	cat $KASADEVICES >> $KASATMP
-	column -t -N "Plug IP","Hostname","Model","Type","Features","Alias" $KASADEVICES > $KASATMP
+	column -t -N "Device IP","Hostname","Model","Type","Features","Alias" $KASADEVICES > $KASATMP
                 len=$(cat $KASATMP | wc -L)
                 i=0
                 lonlin=""
@@ -301,7 +324,7 @@ installdepends() {
 			entwareup=0
 			/opt/bin/opkg list-installed > opinst.tmp
 
-                	for app in jq nmap coreutils-od; do
+                	for app in jq nmap coreutils-od coreutils-base64; do
                         	if ! grep -wq $app opinst.tmp ; then
 					if [ "$entwareup" = "0" ]; then
                 				opkg update
@@ -384,10 +407,10 @@ install_ukasa() {
 	echo
 	sleep 2
 	port=9999	# set default for now
-	discoverkasa
+	discoverkasa "new"
 	if [ -f "$KASADEVICES" ]; then
 		echo ""
-		echo "Here are the Kasa devices found:"
+		echo "Here are the Kasa devices available:"
 		echo
 		showkasadevices
 	fi
@@ -487,8 +510,8 @@ updateukasa() {
 
 name2ip() {
 
-	
-	ipis=$(grep -w "$1\s" "$KASADEVICES" | awk '{print $1}')
+	ipis=""	
+	ipis=$(grep -w "$1" "$KASADEVICES" | awk '{print $1}')
 
 	if [ -z "$ipis" ]; then
 		echo "[-] ukasa: $1 not found in $KASADEVICES"
@@ -553,6 +576,7 @@ decode(){
 query_plug(){
 	ip=$2
         payload=$1
+	cat /dev/null > $KPRESPONSE
         send_to_plug $ip $port "$payload" | decode | jq '.' > $KPRESPONSE
 	if [ -z $KPRESPONSE ]; then # some older plugs need a retry
         	send_to_plug $ip $port "$payload" | decode | jq '.' > $KPRESPONSE
@@ -579,7 +603,7 @@ cmd_print_plug_relay_state(){
        elif (( output == 1 )); then
          echo ON
        else
-         echo Couldn''t understand plug response $output
+         echo Couldn''t understand device $1 response $output
        fi
 }
 
@@ -593,7 +617,7 @@ cmd_print_plug_consumption(){
 
    query_plug "$payload_emeter" $1
    if [ -z "$KPRESPONSE" ]; then
-	echo "ukasa: Didn't get a response from plug $1"
+	echo "ukasa: Didn't get a response from device $1"
 	exit
    fi
 
@@ -607,9 +631,9 @@ cmd_print_plug_consumption(){
 	if [ "$2" = "$report" ]; then
 		return
 	elif [ "$2" = "$monitor" ]; then
-        	printf "Voltage: %.1f (V)  Current: %s (mA)  Power: %.1f (W)  Total Watt Hours: %s (Wh)\\r" $voltage_V $current_ma $power_W $total_wh
+        	printf "Voltage: %.1f (V)  Current: %.1f (mA)  Power: %.1f (W)  Total Watt Hours: %s (Wh)\\r" $voltage_V $current_ma $power_W $total_wh
 	else
-        	printf "Voltage: %.1f (V)  Current: %s (mA)  Power: %.1f (W)  Total Watt Hours: %s (Wh)\\n" $voltage_V $current_ma $power_W $total_wh
+        	printf "Voltage: %.1f (V)  Current: %.1f (mA)  Power: %.1f (W)  Total Watt Hours: %s (Wh)\\n" $voltage_V $current_ma $power_W $total_wh
 	fi
 }
 
@@ -637,6 +661,7 @@ cmd_print_plug_info(){
       alias=$(jq -M '.system.get_sysinfo.alias' $KPRESPONSE)
       mac=$(jq -M '.system.get_sysinfo.mac' $KPRESPONSE)
       dev_name=$(jq -M '.system.get_sysinfo.dev_name' $KPRESPONSE)
+      feature=$(jq -M '.system.get_sysinfo.feature' $KPRESPONSE | tr -d '"')
       if [ "$on_time" = "0" ]; then
 	  fulltime=0
       else
@@ -648,14 +673,14 @@ cmd_print_plug_info(){
 	pstate=ON
       fi
 
-      printf "\\nSofware Ver: %s   Hardwar Ver: %s  Model: %s (%s)  Device ID: %s\\n" $sw_ver $hw_ver $model "$dev_name" $deviceId
+      printf "\\nSofware Ver: %s   Hardwar Ver: %s  Model: %s (%s)\\n  Device ID: %s\\n" $sw_ver $hw_ver $model "$dev_name" $deviceId
       printf "WiFi rssi: %s   Power state: %s  MAC address: %s  On time: %s\\n" $rssi $pstate $mac $fulltime
 
-      if [ "$model" = "KP125" ]; then
+      if [ "$feature" = "TIM:ENE" ]; then
          cmd_print_plug_consumption $1 $once
          echo
      else
-	printf "ukasa: This model doesn't support energy management\\n"
+	printf "\\nThis model doesn't support energy management\\n"
       fi
 }
 
@@ -711,7 +736,18 @@ case ${1} in
 		exit
 	;;
 	discover)
-		discoverkasa
+		discoverkasa "discover"
+		if [ -f "$KASADEVICES" ]; then
+			echo ""
+			echo "ukasa: Here are the Kasa devices found:"
+			echo
+			showkasadevices
+			echo
+		fi
+		exit
+	;;
+	refresh)
+		discoverkasa "new"
 		if [ -f "$KASADEVICES" ]; then
 			echo ""
 			echo "ukasa: Here are the Kasa devices found:"
@@ -818,6 +854,7 @@ case ${kpcommand} in
 		;;
 # testmode - hidden command to expriment with differnt things
 		testmode)
+			name2ip $kpplug
 			printf "Plug %s  Command %s\\n" $kpplug $kpcommand
 			printdevicetype $kpplug
 			read a
