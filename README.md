@@ -114,7 +114,9 @@ These commands do not need a device identifier. They are informational or mainte
 
 _discover_ - perform a network scan for Kasa devices. If one or more are found, add to the device list
 __Note__ this command can take a few minutes for the scan and information retreival from the found device. Also, ignore the RTTVAR warnings, it's nmap making adjustments...
-If a new device is discovered, it will be added. Devices are NOT removed from the list.
+If a new device is discovered, it will be added. Devices are NOT removed from the list. To do a compete rescan of the local network, use the command _refresh_.
+
+_refresh_ - This command is identical to _discover_ except it completely re-creates the internal devices list/file. If you remove plugs or switches, you will need to do a "refresh".
 
 _devices_ - this command will display a table of the presently known Kasa devices it has discoveded
 ```
@@ -130,6 +132,26 @@ Device IP      Hostname          Model      Type    Features  Alias
 192.168.1.93   TMOGateway        KP125(US)  Plug    TIM:ENE   TMO        Gateway
 192.168.1.91   NetworkCloset     KP125(US)  Plug    TIM:ENE   Network    Closet
 ```
+
+_install_ - Install ukasa. Install first checks for apps that it requires - nmap, jq, od and base64. If any are not installed, ukasa installs them via opkg. The install script will then create a directory in /jffs/addons/ukasa and create a small config file (/jffs/addons/ukasa/ukasa.conf).
+It then performs and nmap scan of the local network to discover Kasa plugs and switches on the network. For every one found, ukasa attempts to find the local hostname of the device. It first looks in /etc/hosts then YazDHCP if it is installed.
+If it can't determine the hostname, it creates one by using the Type of device and the last 3 octects of it's MAC address (i.e. KP125AF0155). ukasa then adds an entry to the devices file  /jffs/addons/ukasa/ukasa.devices with the devices IP address, it's local hostname, model, type of device, features and alias (name of the device assigned by the Kasa iOS or Android app.
+Install will then offer to install a directory in /jffs/addons/ukasa with one or more example scripts that use ukasa.
+
+_uninstall_ - Uninstall will remove all traces of ukasa - the script itself, the link in /opt/sbin and it's directory in /jffs/addons.
+
+_update_ - update checks for the latest version of ukasa on github and if newer will offer to download it over the existing script. It will also optionally re-install the examples.
+
+_version_ - prints the version of the installed ukasa
+
+_help_ - prints a help screen showing commands and usage
+
+## Notes
+
+At this time, ukasa __does not suport_ the Matter enabled plugs and switches. These models typically end the model number in an "M"
+
+The _discover_ command sometimes does not get a response from a plug or switch. Typically running it a few times finds them all
+
 
 
 
