@@ -47,6 +47,7 @@ __NOTE2__ at this time ukasa _doesn't_ support the new matter based plugs (i.e. 
        <info>           :  show information about a Kasa device
 
 discover                :  search the network for Kasa devices
+refresh                 :  re-create the list of all the devices discovered
 devices                 :  show all the devices discovered
 help (this screen)      :  show this screen
 install                 :  run the install script
