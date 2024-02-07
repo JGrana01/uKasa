@@ -1,5 +1,5 @@
 # uKasa
-A utilty that manages Kasa smart outlets and switches in Asuswrt-Merlin routers
+A utility that manages Kasa smart outlets and switches using Asuswrt-Merlin routers
 
 ## Installation
 uKasa can be installed on Asuswrt-Merlin routers.
