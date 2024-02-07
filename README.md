@@ -10,6 +10,16 @@ For Asuswrt-Merlin based routers:
 
 /usr/sbin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/uKasa/master/ukasa" -o "/jffs/scripts/ukasa" && chmod 0755 /jffs/scripts/ukasa && /jffs/scripts/ukasa install
 
+__NOTE__ _ukasa_ requires Entware and bash. If bash is not installed, an error will be reported immediatly (not found).
+To install bash on Asuswrt-merlin routers (assuming Entware has been installed via AMTM, perform these commands:
+
+```
+$ opkg update
+$ opkg install bash
+```
+
+
+
 ## About
 uKasa is a small script/utility that lets you turn Kasa Smart Plugs and some Kasa Smart Switches off and on via the Linux CLI (or called from a script).
 It also will show lots of information about the Kasa devices it finds on the local network including power consumption information if the plugs supports energy management.
