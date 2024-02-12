@@ -1,0 +1,47 @@
+#!/bin/sh
+
+# ukasa installer
+#
+# makes sure bash is installed. If not, then offer to install it.
+#
+
+printf "\\nukasa installer\\n"
+
+if [ ! -x /opt/bin/opkg ]; then
+                  printf "\\nukasa requires Entware to be installed\\n"
+                  printf "\\nInstall Entware using amtm and run ukasa install\\n"
+                  exit 1
+fi
+
+if [ ! -x /opt/bin/bash ]; then
+	printf "\\n ukasa requires the bash shell to operate\\n"
+	printf "\\n Would you like to install bash (Y or N)? "
+	read a
+	case $a in
+		Y|y)
+			opkg update
+			opkg install bash
+			printf "\\n Done.\\n"
+		;;
+		N|n)
+			printf "\\nOk, not installing ukasa\\n"
+			exit
+		;;
+		*)
+			printf "\\n No Y or N. Exiting\\n"
+			exit
+		;;
+	esac
+fi
+if [ ! -x /opt/bin/bash ]; then
+	printf "\\n It looks like bash didn't get installed!!!\\n"
+	printf "\\n Run the ukasa.install command again (or not)\\n"
+	exit
+fi
+
+printf "Downloading and installing ukasa...\\n"
+exec /usr/sbin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/uKasa/master/ukasa" -o "/jffs/scripts/ukasa" && chmod 0755 /jffs/scripts/ukasa && /jffs/scripts/ukasa install
+exit
+
+
+	
