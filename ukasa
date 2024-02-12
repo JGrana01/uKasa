@@ -71,7 +71,7 @@ setOS() {
 
 
 SCRIPTNAME="ukasa"
-SCRIPTVER="0.1.3"
+SCRIPTVER="0.1.4"
 
 NCOPTS="-w 7"
 BASE64DEC="-d"
@@ -174,7 +174,7 @@ checkapi() {
 		exit 1
 	fi
 	if [ ! -f "$KASADEVICES" ]; then
-		echo "[-] ukasa: No outles detected. Please run ukasa discover"
+		echo "[-] ukasa: No outlets detected. Please run ukasa discover"
 		exit 1
 	fi
 }
@@ -257,6 +257,8 @@ discoverkasa() {
 			;;
 			*)
 				devtype="Unknown"
+				echo "Hmm not a plug or switch -  tpyed is $typed" > /jffs/addons/ukasa/unknownkasa
+				cp $KPRESPONSE >> /jffs/addons/ukasa/unknownkasa
 			;;
 		esac
 
@@ -324,7 +326,7 @@ installdepends() {
 			entwareup=0
 			/opt/bin/opkg list-installed > opinst.tmp
 
-                	for app in jq nmap coreutils-od coreutils-base64; do
+                	for app in jq nmap coreutils-od coreutils-base64 column; do
                         	if ! grep -wq $app opinst.tmp ; then
 					if [ "$entwareup" = "0" ]; then
                 				opkg update
@@ -374,7 +376,7 @@ getexamples() {
 # OS supported are Asuswrt-Merlin and Raspbian (and possible other GNU/Linux
 
 install_ukasa() {
-	echo "Creating script directory $SCRIPTDIR"
+	printf "\\n    ukasa install\\n\\nCreating script directory $SCRIPTDIR\\n"
         mkdir -p "$SCRIPTDIR"
         mkdir -p "$SCRIPTDIR/saved"
 
