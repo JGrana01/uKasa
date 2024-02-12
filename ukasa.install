@@ -40,7 +40,10 @@ if [ ! -x /opt/bin/bash ]; then
 fi
 
 printf "Downloading and installing ukasa...\\n"
-exec /usr/sbin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/uKasa/master/ukasa" -o "/jffs/scripts/ukasa" && chmod 0755 /jffs/scripts/ukasa && /jffs/scripts/ukasa install
+/usr/sbin/curl --retry 3 "https://raw.githubusercontent.com/JGrana01/uKasa/master/ukasa" -o "/jffs/scripts/ukasa"
+chmod 0755 /jffs/scripts/ukasa
+printf "\\n\\nukasa downloaded, running install\\n\\n"
+exec /jffs/scripts/ukasa install
 exit
 
 
