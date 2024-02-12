@@ -232,8 +232,10 @@ discoverkasa() {
 	echo "Checking devices and names..."
 	numnew=0
 	port=9999
+	devcnt=0
 	for i in $(cat $KASADEVICES.tmp); do
 		query_plug "$payload_query" $i
+		devcnt="$((devcnt + 1))"
 		alias=$(jq -M '.system.get_sysinfo.alias' $KPRESPONSE | tr -d '"')
 		model=$(jq -M '.system.get_sysinfo.model' $KPRESPONSE | tr -d '"')
 		feature=$(jq -M '.system.get_sysinfo.feature' $KPRESPONSE | tr -d '"')
@@ -257,8 +259,8 @@ discoverkasa() {
 			;;
 			*)
 				devtype="Unknown"
-				echo "Hmm not a plug or switch -  tpyed is $typed" > /jffs/addons/ukasa/unknownkasa
-				cp $KPRESPONSE >> /jffs/addons/ukasa/unknownkasa
+				echo "Hmm not a plug or switch -  tpyed is $typed" > /jffs/addons/ukasa/unknownkasa$devcnt
+				cp $KPRESPONSE >> /jffs/addons/ukasa/unknownkasa$devcnt
 			;;
 		esac
 
