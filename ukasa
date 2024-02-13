@@ -71,7 +71,7 @@ setOS() {
 
 
 SCRIPTNAME="ukasa"
-SCRIPTVER="0.1.4"
+SCRIPTVER="0.1.5"
 
 NCOPTS="-w 7"
 BASE64DEC="-d"
@@ -260,7 +260,7 @@ discoverkasa() {
 			*)
 				devtype="Unknown"
 				echo "Hmm not a plug or switch -  tpyed is $typed" > /jffs/addons/ukasa/unknownkasa$devcnt
-				cp $KPRESPONSE >> /jffs/addons/ukasa/unknownkasa$devcnt
+				cat $KPRESPONSE >> /jffs/addons/ukasa/unknownkasa$devcnt
 			;;
 		esac
 
@@ -328,7 +328,7 @@ installdepends() {
 			entwareup=0
 			/opt/bin/opkg list-installed > opinst.tmp
 
-                	for app in jq nmap coreutils-od coreutils-base64 column; do
+                	for app in bc jq nmap coreutils-od coreutils-base64 column; do
                         	if ! grep -wq $app opinst.tmp ; then
 					if [ "$entwareup" = "0" ]; then
                 				opkg update
