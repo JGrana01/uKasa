@@ -71,7 +71,7 @@ setOS() {
 
 
 SCRIPTNAME="ukasa"
-SCRIPTVER="0.1.5"
+SCRIPTVER="0.1.6"
 
 NCOPTS="-w 7"
 BASE64DEC="-d"
@@ -556,7 +556,7 @@ send_to_plug() {
    ip="$1"
    port="$2"
    payload="$3"
-   if ! echo -n "$payload" | base64 ${BASE64DEC} | nc $NCOPTS $ip $port
+   if ! echo -n "$payload" | base64 ${BASE64DEC} | $NCAPP $NCOPTS $ip $port
    then
       echo "couldn't connect to $ip:$port, nc failed with exit code $?"
    fi
