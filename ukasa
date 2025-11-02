@@ -71,7 +71,7 @@ setOS() {
 
 
 SCRIPTNAME="ukasa"
-SCRIPTVER="0.1.6"
+SCRIPTVER="0.1.7 debug"
 
 NCOPTS="-w 7"
 BASE64DEC="-d"
@@ -115,6 +115,7 @@ else
 fi
 
 KPRESPONSE="$SCRIPTDIR/kpresponse"
+KPRESPONSEraw="$SCRIPTDIR/kpresponse.raw"
 KASATMP="$SCRIPTDIR/ukasa.tmp"
 once=1
 monitor=2
@@ -580,11 +581,20 @@ decode(){
 query_plug(){
 	ip=$2
         payload=$1
-	cat /dev/null > $KPRESPONSE
-        send_to_plug $ip $port "$payload" | decode | jq '.' > $KPRESPONSE
-	if [ -z $KPRESPONSE ]; then # some older plugs need a retry
-        	send_to_plug $ip $port "$payload" | decode | jq '.' > $KPRESPONSE
+	if [ $debug = 1 ]; then
+		set -x
 	fi
+	cat /dev/null > $KPRESPONSEraw
+	cat /dev/null > $KPRESPONSE
+        send_to_plug $ip $port "$payload" > $KPRESPONSEraw
+	if [ -z $KPRESPONSEraw ]; then # some older plugs need a retry
+        	send_to_plug $ip $port "$payload" > $KPRESPONSEraw
+	fi
+	if [ -z $KPRESPONSEraw ]; then # hmm, not getting a response...
+		printf "Kasa device at %s did not return any data...\\n" $ip
+		exit
+	fi
+	cat $KPRESPONSEraw | decode | jq '.' > $KPRESPONSE
 
 }
 
@@ -778,6 +788,11 @@ case ${1} in
 	help)
 		usage
 		exit 0
+	;;
+	debug)
+		debug=1
+		kpplug=${2}
+		kpcommand=${3}
 	;;
 esac
 
